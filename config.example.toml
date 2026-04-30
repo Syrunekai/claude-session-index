@@ -1,0 +1,32 @@
+# Configuration for claude-session-index
+#
+# Edit this file to customize behavior. All keys have sensible defaults
+# and can be omitted. Lines starting with # are comments.
+
+# Schema version. Tracks the shape of this file. If you keep an old
+# config after upgrading the tool, defaults are used silently for any
+# newly added keys and a one-time warning will point you at the latest
+# config.example.toml.
+schema_version = 1
+
+# Where Claude Code session JSONL files live. Override only if Claude
+# stores sessions somewhere unusual.
+# projects_dir = "~/.claude/projects"
+
+# SQLite index database location. Defaults to a path under XDG_CACHE_HOME.
+# db_path = "~/.cache/claude-session-index/sessions.db"
+
+# Hook-captured topic timeline directory. This is Claude Code's namespace,
+# not ours — change only if you have moved Claude's data.
+# topics_dir = "~/.claude/session-topics"
+
+# Optional: list of client names. Sessions whose prompts mention any of
+# these names get auto-tagged with the matching client. Used by
+# `sessions analytics --client <name>`.
+clients = []
+
+# Optional: map raw project directory names to friendlier display names.
+# The directory name is what Claude Code creates from the project path —
+# typically a slug like "-Users-foo-Projects-myapp".
+[project_names]
+# "-Users-foo-Projects-myapp" = "myapp"

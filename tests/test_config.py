@@ -57,7 +57,7 @@ class XDGPathResolutionTests(unittest.TestCase):
             config = _reload_config()
             self.assertEqual(
                 config.CONFIG_FILE,
-                Path("/tmp/cfg/claude-session-index/config.json"),
+                Path("/tmp/cfg/claude-session-index/config.toml"),
             )
 
     def test_topics_dir_unchanged(self):
@@ -164,13 +164,173 @@ class SecurePermissionTests(unittest.TestCase):
         self.assertEqual(self._mode(target.parent), 0o700)
 
     def test_init_config_writes_secure_file(self):
-        cfg_path = self.tmp / "cfg" / "config.json"
+        cfg_path = self.tmp / "cfg" / "config.toml"
         with mock.patch.object(self.config, "CONFIG_FILE", cfg_path):
             ok = self.config.init_config()
         self.assertTrue(ok)
         self.assertTrue(cfg_path.exists())
         self.assertEqual(self._mode(cfg_path), 0o600)
         self.assertEqual(self._mode(cfg_path.parent), 0o700)
+        # Content must be valid TOML matching the template
+        import tomllib
+        with open(cfg_path, "rb") as f:
+            data = tomllib.load(f)
+        self.assertEqual(
+            data.get("schema_version"),
+            self.config.CURRENT_SCHEMA_VERSION,
+        )
+
+
+class TomlLoadingTests(unittest.TestCase):
+    """Section E: _load_config_file uses tomllib."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="csi-toml-"))
+        from session_index import config
+        self.config = config
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_reads_valid_toml(self):
+        cfg = self.tmp / "config.toml"
+        cfg.write_text(
+            'schema_version = 1\n'
+            'projects_dir = "/tmp/projects"\n'
+            'clients = ["Acme", "Beta"]\n'
+        )
+        with mock.patch.object(self.config, "CONFIG_FILE", cfg):
+            data = self.config._load_config_file()
+        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["projects_dir"], "/tmp/projects")
+        self.assertEqual(data["clients"], ["Acme", "Beta"])
+
+    def test_returns_empty_dict_on_invalid_toml(self):
+        cfg = self.tmp / "config.toml"
+        cfg.write_text("this is = not = valid toml\n")
+        with mock.patch.object(self.config, "CONFIG_FILE", cfg):
+            data = self.config._load_config_file()
+        self.assertEqual(data, {})
+
+    def test_returns_empty_dict_when_missing(self):
+        cfg = self.tmp / "nonexistent.toml"
+        with mock.patch.object(self.config, "CONFIG_FILE", cfg):
+            data = self.config._load_config_file()
+        self.assertEqual(data, {})
+
+
+class SchemaVersionWarningTests(unittest.TestCase):
+    """Section E: schema_version mismatch produces a one-time warning."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="csi-schema-"))
+        from session_index import config
+        self.config = config
+        self.config._schema_warning_emitted = False
+        self.cfg = self.tmp / "config.toml"
+        self._patch = mock.patch.object(self.config, "CONFIG_FILE", self.cfg)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _capture(self, fn):
+        buf = io.StringIO()
+        with mock.patch.object(sys, "stderr", buf):
+            fn()
+        return buf.getvalue()
+
+    def test_silent_when_no_config_file(self):
+        # No file written; warning must not fire
+        out = self._capture(lambda: self.config._maybe_emit_schema_warning({}))
+        self.assertEqual(out, "")
+
+    def test_silent_when_version_matches(self):
+        self.cfg.write_text(f"schema_version = {self.config.CURRENT_SCHEMA_VERSION}\n")
+        out = self._capture(lambda: self.config._maybe_emit_schema_warning(
+            {"schema_version": self.config.CURRENT_SCHEMA_VERSION}
+        ))
+        self.assertEqual(out, "")
+
+    def test_emits_when_version_missing(self):
+        self.cfg.write_text("clients = []\n")  # file exists, no schema_version
+        out = self._capture(lambda: self.config._maybe_emit_schema_warning({"clients": []}))
+        self.assertIn("no schema_version", out)
+        self.assertIn("config.example.toml", out)
+
+    def test_emits_when_version_lower(self):
+        self.cfg.write_text("schema_version = 0\n")
+        out = self._capture(lambda: self.config._maybe_emit_schema_warning(
+            {"schema_version": 0}
+        ))
+        self.assertIn("v0", out)
+        self.assertIn(f"v{self.config.CURRENT_SCHEMA_VERSION}", out)
+
+    def test_emits_when_version_higher(self):
+        higher = self.config.CURRENT_SCHEMA_VERSION + 5
+        self.cfg.write_text(f"schema_version = {higher}\n")
+        out = self._capture(lambda: self.config._maybe_emit_schema_warning(
+            {"schema_version": higher}
+        ))
+        self.assertIn(f"v{higher}", out)
+        self.assertIn("not be recognized", out)
+
+    def test_only_emits_once(self):
+        self.cfg.write_text("schema_version = 0\n")
+        first = self._capture(lambda: self.config._maybe_emit_schema_warning(
+            {"schema_version": 0}
+        ))
+        second = self._capture(lambda: self.config._maybe_emit_schema_warning(
+            {"schema_version": 0}
+        ))
+        self.assertNotEqual(first, "")
+        self.assertEqual(second, "")
+
+
+class GetConfigSchemaTests(unittest.TestCase):
+    """Section E: get_config strips schema_version from runtime config."""
+
+    def setUp(self):
+        from session_index import config
+        importlib.reload(config)
+        self.config = config
+
+    def test_schema_version_not_in_runtime_config(self):
+        cfg_text = (
+            'schema_version = 1\n'
+            'projects_dir = "/custom/projects"\n'
+        )
+        with tempfile.NamedTemporaryFile(suffix=".toml", delete=False, mode="w") as f:
+            f.write(cfg_text)
+            cfg_path = Path(f.name)
+        try:
+            self.config._cached_config = None
+            self.config._schema_warning_emitted = True  # suppress noise
+            with mock.patch.object(self.config, "CONFIG_FILE", cfg_path):
+                resolved = self.config.get_config()
+            self.assertNotIn("schema_version", resolved)
+            self.assertEqual(resolved["projects_dir"], "/custom/projects")
+        finally:
+            cfg_path.unlink()
+
+
+class ConfigExampleSyncTests(unittest.TestCase):
+    """Section E: config.example.toml at repo root tracks CONFIG_TEMPLATE."""
+
+    def test_repo_example_in_sync_with_template(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        derived = repo_root / "config.example.toml"
+        self.assertTrue(derived.exists(),
+                        f"derived config.example.toml missing at {derived}")
+        from session_index.config import CONFIG_TEMPLATE
+        self.assertEqual(
+            derived.read_text(),
+            CONFIG_TEMPLATE,
+            "config.example.toml is out of sync with "
+            "session_index/config.py:CONFIG_TEMPLATE.\n"
+            "Run: python scripts/sync-config-example.py",
+        )
 
 
 if __name__ == "__main__":

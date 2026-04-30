@@ -3,7 +3,7 @@
 Priority order:
 1. Function arguments (passed directly)
 2. Environment variables (SESSION_INDEX_PROJECTS, SESSION_INDEX_DB, SESSION_INDEX_TOPICS)
-3. Config file ($XDG_CONFIG_HOME/claude-session-index/config.json)
+3. Config file ($XDG_CONFIG_HOME/claude-session-index/config.toml)
 4. Sensible defaults
 
 Path conventions (XDG Base Directory Specification):
@@ -11,12 +11,17 @@ Path conventions (XDG Base Directory Specification):
 - Cache:  $XDG_CACHE_HOME/claude-session-index/   (default: ~/.cache/...)
 - Topics live under ~/.claude/session-topics/ — that is Claude's namespace,
   not ours, and existing hooks reference it.
+
+Schema version: every config file should declare a `schema_version`. When
+the tool's CURRENT_SCHEMA_VERSION moves ahead of the user's file, defaults
+fill in any new keys silently and a one-time warning points at the latest
+config.example.toml for reference.
 """
 
-import json
 import os
 import stat
 import sys
+import tomllib
 from pathlib import Path
 from typing import Optional
 
@@ -40,10 +45,52 @@ DEFAULTS = {
     "project_names": {},
 }
 
-CONFIG_FILE = _xdg_config_home() / _APP_DIR_NAME / "config.json"
+CONFIG_FILE = _xdg_config_home() / _APP_DIR_NAME / "config.toml"
+
+# Bump when the keys recognized in the config file change. Older
+# config files keep working — defaults fill in any missing keys —
+# but a one-time warning nudges the user to refresh from the
+# latest config.example.toml.
+CURRENT_SCHEMA_VERSION = 1
+
+CONFIG_TEMPLATE = """\
+# Configuration for claude-session-index
+#
+# Edit this file to customize behavior. All keys have sensible defaults
+# and can be omitted. Lines starting with # are comments.
+
+# Schema version. Tracks the shape of this file. If you keep an old
+# config after upgrading the tool, defaults are used silently for any
+# newly added keys and a one-time warning will point you at the latest
+# config.example.toml.
+schema_version = 1
+
+# Where Claude Code session JSONL files live. Override only if Claude
+# stores sessions somewhere unusual.
+# projects_dir = "~/.claude/projects"
+
+# SQLite index database location. Defaults to a path under XDG_CACHE_HOME.
+# db_path = "~/.cache/claude-session-index/sessions.db"
+
+# Hook-captured topic timeline directory. This is Claude Code's namespace,
+# not ours — change only if you have moved Claude's data.
+# topics_dir = "~/.claude/session-topics"
+
+# Optional: list of client names. Sessions whose prompts mention any of
+# these names get auto-tagged with the matching client. Used by
+# `sessions analytics --client <name>`.
+clients = []
+
+# Optional: map raw project directory names to friendlier display names.
+# The directory name is what Claude Code creates from the project path —
+# typically a slug like "-Users-foo-Projects-myapp".
+[project_names]
+# "-Users-foo-Projects-myapp" = "myapp"
+"""
 
 _cached_config: Optional[dict] = None
 _legacy_notice_emitted = False
+_schema_warning_emitted = False
 
 
 def secure_mkdir(path, mode: int = 0o700) -> None:
@@ -116,13 +163,56 @@ def _maybe_emit_legacy_path_notice():
 
 
 def _load_config_file() -> dict:
-    """Load config from ~/.session-index/config.json if it exists."""
+    """Load config from CONFIG_FILE if it exists, returning {} on any failure."""
     if CONFIG_FILE.exists():
         try:
-            return json.loads(CONFIG_FILE.read_text())
-        except (json.JSONDecodeError, OSError):
+            with open(CONFIG_FILE, "rb") as f:
+                return tomllib.load(f)
+        except (tomllib.TOMLDecodeError, OSError):
             pass
     return {}
+
+
+def _maybe_emit_schema_warning(file_config: dict) -> None:
+    """One-time warning when the user's config schema_version doesn't match.
+
+    Cases:
+    - No schema_version field    -> "pre-versioning, refresh from example"
+    - schema_version < current   -> "out of date, refresh from example"
+    - schema_version > current   -> "newer than tool supports"
+    Matching version is silent.
+    """
+    global _schema_warning_emitted
+    if _schema_warning_emitted:
+        return
+    if not CONFIG_FILE.exists():
+        return  # No file = no schema concern; defaults apply silently
+
+    user_version = file_config.get("schema_version")
+    if user_version == CURRENT_SCHEMA_VERSION:
+        return
+
+    if user_version is None:
+        msg = (
+            f"warning: config at {CONFIG_FILE} has no schema_version. "
+            f"Latest is v{CURRENT_SCHEMA_VERSION}. Defaults apply for any "
+            "missing keys. See config.example.toml."
+        )
+    elif user_version < CURRENT_SCHEMA_VERSION:
+        msg = (
+            f"warning: config schema is v{user_version}, latest is "
+            f"v{CURRENT_SCHEMA_VERSION}. Defaults apply for any missing "
+            "keys. See config.example.toml."
+        )
+    else:
+        msg = (
+            f"warning: config schema is v{user_version} but this tool only "
+            f"supports up to v{CURRENT_SCHEMA_VERSION}. Some keys may not be "
+            "recognized."
+        )
+
+    _schema_warning_emitted = True
+    print(msg, file=sys.stderr)
 
 
 def get_config() -> dict:
@@ -136,7 +226,10 @@ def get_config() -> dict:
 
     # Layer on config file
     file_config = _load_config_file()
+    _maybe_emit_schema_warning(file_config)
     for key, value in file_config.items():
+        if key == "schema_version":
+            continue  # Metadata, not a runtime setting
         if key in config and value is not None:
             config[key] = value
 
@@ -219,7 +312,7 @@ def init_config():
         return False
 
     secure_mkdir(CONFIG_FILE.parent, 0o700)
-    CONFIG_FILE.write_text(json.dumps(DEFAULTS, indent=2) + "\n")
+    CONFIG_FILE.write_text(CONFIG_TEMPLATE)
     secure_chmod_file(CONFIG_FILE, 0o600)
     return True
 

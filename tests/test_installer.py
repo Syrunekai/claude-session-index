@@ -159,7 +159,7 @@ class InitConfigCmdTests(unittest.TestCase):
         self.config = config
         self.tmp = Path(tempfile.mkdtemp(prefix="csi-initcfg-"))
         # Redirect CONFIG_FILE for the test
-        self.cfg_path = self.tmp / "config.json"
+        self.cfg_path = self.tmp / "config.toml"
         self._patch = mock.patch.object(self.config, "CONFIG_FILE", self.cfg_path)
         self._patch.start()
 
@@ -175,18 +175,19 @@ class InitConfigCmdTests(unittest.TestCase):
 
     def test_no_overwrite_without_force(self):
         self.cfg_path.parent.mkdir(parents=True, exist_ok=True)
-        self.cfg_path.write_text("{}")
+        marker = '# user-customized config\n'
+        self.cfg_path.write_text(marker)
         ok = self.installer.init_config_cmd(force=False)
         self.assertFalse(ok)
-        self.assertEqual(self.cfg_path.read_text(), "{}")
+        self.assertEqual(self.cfg_path.read_text(), marker)
 
     def test_force_overwrites(self):
         self.cfg_path.parent.mkdir(parents=True, exist_ok=True)
-        self.cfg_path.write_text("{}")
+        self.cfg_path.write_text('# stub\n')
         ok = self.installer.init_config_cmd(force=True)
         self.assertTrue(ok)
-        # File should now contain default config (more than just empty object)
-        self.assertGreater(len(self.cfg_path.read_text()), 5)
+        # File should now contain the schema_version line from the template
+        self.assertIn("schema_version", self.cfg_path.read_text())
 
 
 class SkillSyncTests(unittest.TestCase):
