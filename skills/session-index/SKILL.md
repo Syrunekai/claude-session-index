@@ -1,16 +1,20 @@
 ---
 name: session-index
 description: Search, analyze, and synthesize across all your Claude Code sessions. Ask "what did I try last time?" and get answers with resume links.
-version: 0.4.0
-author: Syrunekai
-tags:
-  - session-search
-  - session-history
-  - analytics
-  - memory
-  - productivity
-requires:
-  - python3
+license: MIT
+compatibility: Requires Python 3.11+ and Claude Code
+metadata:
+  authors:
+    - Lee Fuhr
+    - Syrunekai
+  version: "0.4.0"
+  fork-of: lee-fuhr/claude-session-index
+  tags:
+    - session-search
+    - session-history
+    - analytics
+    - memory
+    - productivity
 ---
 
 # Session index skill
