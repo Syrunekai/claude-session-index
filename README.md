@@ -11,22 +11,28 @@ Ask "what did I try last time I debugged webhooks?" and get an actual answer.
 ## Quick start
 
 ```bash
-pip install claude-session-index
-```
-
-Then install the Claude Code skill:
-
-```bash
-npx skills add lee-fuhr/claude-session-index
-```
-
-Or copy it manually:
-
-```bash
-cp skills/session-index/SKILL.md .claude/skills/session-index.md
+uv tool install git+https://github.com/Syrunekai/claude-session-index
+sessions install-skill            # copy SKILL.md into ~/.claude/skills/
+sessions configure-permissions    # allow DB writes inside Claude sandbox
 ```
 
 That's it. The first time you ask a question, it auto-indexes all your existing sessions. After that, queries return in milliseconds.
+
+> **Heads-up — currently Claude Code only.** This fork keeps upstream's
+> Claude-only scope. If you also want OpenClaw or Hermes session indexing,
+> see `.local/future-additions.md` in the repo for plans.
+
+### Skill install — alternative via npx
+
+If you'd rather use the [skills marketplace](https://github.com/anthropics/claude-skills) and its supply-chain risk checker, you can install the skill via npx instead:
+
+```bash
+npx skills add Syrunekai/claude-session-index --copy
+```
+
+The `--copy` flag is recommended — it creates a static local file rather than symlinking back to the upstream repo, which closes a small supply-chain attack vector.
+
+Either method (`sessions install-skill` or `npx skills add`) results in the same SKILL.md landing in `~/.claude/skills/session-index/`.
 
 ---
 
@@ -115,6 +121,15 @@ sessions stats                            # database overview
 # Indexing
 sessions index                            # index new/modified sessions
 sessions index --backfill                 # re-index everything
+
+# Setup / admin
+sessions install-skill                    # copy SKILL.md to ~/.claude/skills/
+sessions install-skill --link             # symlink instead (live updates)
+sessions configure-permissions            # add DB write rule to ~/.claude/settings.json
+sessions configure-permissions --dry-run  # preview the change
+sessions configure-permissions --remove   # back out cleanly
+sessions init-config                      # write a default config.toml
+sessions init-config --force              # overwrite existing
 ```
 
 Plain text defaults to search — `sessions "webhook debugging"` just works, no subcommand needed.
@@ -227,40 +242,111 @@ Runs `session-index --incremental` every 30 minutes. Only processes new or modif
 
 ## Configuration
 
-Works out of the box with sensible defaults. All paths are configurable.
+Works out of the box. Everything is configurable; nothing has to be.
 
 ### Priority order
 
-1. CLI flags (`--db-path`, `--projects-dir`)
+1. CLI flags (`--db-path`)
 2. Environment variables (`SESSION_INDEX_DB`, `SESSION_INDEX_PROJECTS`, `SESSION_INDEX_TOPICS`)
-3. Config file (`~/.session-index/config.json`)
-4. Defaults
+3. Config file (`$XDG_CONFIG_HOME/claude-session-index/config.toml`)
+4. Sensible defaults
 
-### Default paths
+### Default paths (XDG-compliant)
 
-| What | Default location |
-|------|-----------------|
-| Database | `~/.session-index/sessions.db` |
-| Sessions | `~/.claude/projects/` |
-| Topics | `~/.claude/session-topics/` |
-| Config | `~/.session-index/config.json` |
+| What | Default location | Notes |
+|------|------------------|-------|
+| Database | `$XDG_CACHE_HOME/claude-session-index/sessions.db` | regenerable cache; default `~/.cache/...` |
+| Config | `$XDG_CONFIG_HOME/claude-session-index/config.toml` | hand-edited; default `~/.config/...` |
+| Sessions (read) | `~/.claude/projects/` | Claude Code's location |
+| Topics | `~/.claude/session-topics/` | Claude Code's namespace, hooks reference it |
 
-### Optional config file
+### Bootstrap a config file
 
-```json
-{
-  "projects_dir": "~/.claude/projects",
-  "db_path": "~/.session-index/sessions.db",
-  "topics_dir": "~/.claude/session-topics",
-  "clients": ["Acme Corp", "Internal"],
-  "project_names": {
-    "-Users-me-projects-myapp": "My App"
-  }
-}
+```bash
+sessions init-config        # writes a documented default at $XDG_CONFIG_HOME/...
+sessions init-config --force # overwrite an existing config
 ```
 
-- **`clients`** — Optional. If provided, sessions are auto-tagged with matching client names. If empty, client detection is skipped.
-- **`project_names`** — Optional. Maps Claude's directory-based project names to friendly labels. If empty, auto-generates from directory names.
+The generated file is fully commented — every key has a short explanation inline.
+
+A reference is also tracked at the repo root as [`config.example.toml`](config.example.toml). Anything you can put in your local config you can see there.
+
+### Schema versioning
+
+Each config file declares a `schema_version`. If you keep an old config after upgrading, defaults silently fill in any new keys, and a one-time warning at startup tells you the schema has moved on:
+
+```
+warning: config schema is v1, latest is v2. Defaults apply for any
+missing keys. See config.example.toml.
+```
+
+The config keeps working — the warning is informational. Refresh by copying any new keys you want from `config.example.toml`, or run `sessions init-config --force` to rebuild from scratch (you'll lose any custom values).
+
+### Configurable keys
+
+| Key | Purpose |
+|-----|---------|
+| `projects_dir` | Where Claude Code session JSONL files live |
+| `db_path` | SQLite index database location |
+| `topics_dir` | Hook-captured topic timeline directory |
+| `clients` | Optional. List of client names; sessions whose prompts mention any get auto-tagged |
+| `project_names` | Optional. Map raw project directory slugs to friendly display names |
+
+### Migrating from upstream `~/.session-index/`
+
+If you previously installed the upstream tool (`lee-fuhr/claude-session-index`), your old DB and config still sit in `~/.session-index/`. This fork won't touch that directory — it just notices it on startup and tells you once:
+
+```
+notice: legacy ~/.session-index/ paths detected:
+  - /home/you/.session-index/sessions.db
+This fork uses XDG-compliant paths. A fresh index will be built at
+/home/you/.cache/claude-session-index/sessions.db.
+After verifying things work, remove the legacy directory: rm -rf /home/you/.session-index
+```
+
+Re-indexing at the new location is fast — purely local, no API calls, runs once.
+
+---
+
+## Security considerations
+
+The SQLite index database is plaintext and contains the full content of your Claude Code sessions — your prompts, Claude's responses, file paths, code, and anything else you've ever discussed. Treat it as you would any private notebook.
+
+**Defaults this fork applies for you:**
+
+- DB and config directories created with mode `0o700` (owner-only)
+- DB and config files created with mode `0o600` (owner-only)
+- Permissions are *self-healing* — if you upgraded from upstream and your old files have looser permissions, they get tightened on the next CLI invocation
+
+**Things you should consider yourself:**
+
+- **Full-disk encryption** — FileVault (macOS), BitLocker (Windows), LUKS (Linux). Filesystem perms don't help if the disk is offline or stolen.
+- **Backups** — verify that anything backing up `$XDG_CACHE_HOME` (some agents do) is treating the contents as sensitive. Cloud sync to Dropbox/iCloud unencrypted is a no.
+- **Shared machines** — on a multi-user box, the `0o700`/`0o600` defaults block other local users, but root can still read everything. If that matters, consider per-user encrypted home directories.
+
+This fork's security defaults follow suggestions from upstream issue [#1](https://github.com/lee-fuhr/claude-session-index/issues/1) by [@miclivne](https://github.com/miclivne).
+
+---
+
+## Troubleshooting
+
+### "warning: WAL journal mode unavailable; using default journaling."
+
+This shows up when the SQLite write-ahead log can't create its sidecar files (`sessions.db-wal` and `sessions.db-shm`) next to the main DB. Most commonly it means you're running inside Claude Code's sandbox, which blocks writes outside the project working directory.
+
+The tool keeps working in the slower default journal mode — *correctness is unaffected*, just slightly worse concurrency. To enable WAL properly:
+
+```bash
+sessions configure-permissions
+```
+
+This adds a `Write($XDG_CACHE_HOME/claude-session-index/**)` rule to `~/.claude/settings.json`, granting Claude Code's sandbox the write permission needed for WAL sidecars. Run once; the change is persistent. To undo: `sessions configure-permissions --remove`.
+
+If you're seeing this warning *outside* of Claude Code (cron job, manual CLI), the cause is likely a read-only mount or NFS without locking. The tool still works in fallback mode in those cases.
+
+### Legacy `~/.session-index/` directory
+
+If you upgraded from upstream, the migration notice prints once telling you the old data is no longer used and how to clean up. See [Migrating from upstream](#migrating-from-upstream-session-index) above.
 
 ---
 
@@ -289,7 +375,7 @@ The indexer parses JSONL files once, extracts metadata (timestamps, tools, agent
 
 ## Tech stack
 
-- **Python 3.10+** — stdlib only for core features (no dependencies)
+- **Python 3.11+** — stdlib only for core features (no runtime dependencies); `tomllib` for config reading
 - **SQLite + FTS5** — fast full-text search, no server needed
 - **Anthropic SDK** — optional, only for standalone `synthesize` command
 
@@ -297,13 +383,17 @@ The indexer parses JSONL files once, extracts metadata (timestamps, tools, agent
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - Claude Code (the sessions to index)
 - That's it. No server, no database setup, no API keys for core features.
 
 ---
 
-Built by [Lee Fuhr](https://leefuhr.com). Forked and extended by Syrunekai.
+## Credits
+
+- Originally built by [Lee Fuhr](https://leefuhr.com) — [`lee-fuhr/claude-session-index`](https://github.com/lee-fuhr/claude-session-index).
+- Security hardening defaults (issue [#1](https://github.com/lee-fuhr/claude-session-index/issues/1)) suggested by [@miclivne](https://github.com/miclivne).
+- This fork maintained by [Syrunekai](https://github.com/Syrunekai).
 
 ---
 
@@ -334,6 +424,20 @@ python scripts/sync-skill.py --check
 
 The two-file split (rather than a symlink) keeps the project usable on Windows,
 where git does not materialize symlinks by default.
+
+### Editing the config template
+
+The default config schema lives as `CONFIG_TEMPLATE` in `session_index/config.py`.
+The repo-root [`config.example.toml`](config.example.toml) is generated from it
+for browsable reference on GitHub. Same pattern as the skill:
+
+```bash
+python scripts/sync-config-example.py            # regenerate from CONFIG_TEMPLATE
+python scripts/sync-config-example.py --check    # CI-friendly drift detection
+```
+
+When you add new keys, also bump `CURRENT_SCHEMA_VERSION` in `config.py` so
+existing users see a migration nudge on their next invocation.
 
 ### Running tests
 
