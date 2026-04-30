@@ -47,7 +47,8 @@ def _emit_wal_fallback_warning():
     _wal_warning_emitted = True
     print(
         "warning: WAL journal mode unavailable; using default journaling. "
-        "See README troubleshooting for setup details.",
+        "If you are running inside Claude Code, run `sessions configure-permissions` "
+        "to allow cache writes and enable WAL.",
         file=sys.stderr,
     )
 

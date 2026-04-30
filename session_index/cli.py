@@ -49,7 +49,11 @@ except ImportError:
 SUBCOMMANDS = {
     'context', 'analytics', 'synthesize', 'recent', 'find',
     'tools', 'topics', 'stats', 'index', 'search',
+    'install-skill', 'configure-permissions', 'init-config',
 }
+
+# Setup commands don't need a database — skip ensure_indexed for these.
+SETUP_COMMANDS = {'install-skill', 'configure-permissions', 'init-config'}
 
 
 def main():
@@ -124,6 +128,30 @@ def main():
     sp.add_argument('--backfill', action='store_true', help='Re-index everything')
     sp.add_argument('--session', metavar='ID', help='Index a single session')
 
+    # install-skill
+    sp = subparsers.add_parser(
+        'install-skill', help='Install SKILL.md to ~/.claude/skills/session-index/',
+    )
+    sp.add_argument('--link', action='store_true',
+                    help='Symlink instead of copy (live updates from package)')
+    sp.add_argument('--force', action='store_true', help='Overwrite existing')
+    sp.add_argument('--target', help='Override default target directory')
+
+    # configure-permissions
+    sp = subparsers.add_parser(
+        'configure-permissions',
+        help='Add cache write permission to ~/.claude/settings.json',
+    )
+    sp.add_argument('--dry-run', action='store_true',
+                    help='Show change without writing')
+    sp.add_argument('--remove', action='store_true', help='Remove our entry')
+    sp.add_argument('--settings-file', help='Override default settings.json path')
+
+    # init-config
+    sp = subparsers.add_parser('init-config', help='Write a default config file')
+    sp.add_argument('--force', action='store_true',
+                    help='Overwrite existing config')
+
     # --- Default to search if first arg isn't a subcommand ---
     # Intercept before argparse: if the first real arg isn't a known
     # subcommand or flag, treat the whole thing as a search query.
@@ -148,6 +176,30 @@ def main():
     if args.command is None:
         parser.print_help()
         sys.exit(0)
+
+    # Setup commands don't need the index — dispatch them before path resolution
+    # so they don't trigger ensure_indexed() or get_db_path() side effects.
+    if args.command in SETUP_COMMANDS:
+        try:
+            from .installer import install_skill, configure_permissions, init_config_cmd
+        except ImportError:
+            from installer import install_skill, configure_permissions, init_config_cmd
+
+        if args.command == 'install-skill':
+            ok = install_skill(
+                target_dir=args.target,
+                copy=not args.link,
+                force=args.force,
+            )
+        elif args.command == 'configure-permissions':
+            ok = configure_permissions(
+                settings_path=args.settings_file,
+                dry_run=args.dry_run,
+                remove=args.remove,
+            )
+        elif args.command == 'init-config':
+            ok = init_config_cmd(force=args.force)
+        sys.exit(0 if ok else 1)
 
     # Resolve paths
     db_path = Path(args.db_path) if args.db_path else config.get_db_path()

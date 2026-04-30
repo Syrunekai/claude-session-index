@@ -43,3 +43,6 @@ Issues = "https://github.com/lee-fuhr/claude-session-index/issues"
 
 [tool.setuptools.packages.find]
 include = ["session_index*"]
+
+[tool.setuptools.package-data]
+session_index = ["_skill/*.md"]
