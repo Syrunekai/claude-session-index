@@ -10,6 +10,16 @@ Ask "what did I try last time I debugged webhooks?" and get an actual answer.
 
 ## Quick start
 
+This project installs via [**uv**](https://docs.astral.sh/uv/) — Astral's Rust-based Python package manager. If you don't have it yet:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+(Windows users: see the [uv installation docs](https://docs.astral.sh/uv/getting-started/installation/) for the PowerShell command.)
+
+Then:
+
 ```bash
 uv tool install git+https://github.com/Syrunekai/claude-session-index
 sessions install-skill            # copy SKILL.md into ~/.claude/skills/

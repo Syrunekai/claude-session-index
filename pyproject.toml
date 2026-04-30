@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-session-index"
-version = "0.3.1"
+version = "0.4.0"
 description = "Index, search, and analyze your Claude Code sessions"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
     {name = "Lee Fuhr", email = "hi@leefuhr.com"}
+]
+maintainers = [
+    {name = "Syrunekai", email = "noreply@syrunekai.com"}
 ]
 keywords = ["claude", "claude-code", "session", "search", "index", "sqlite", "fts5"]
 classifiers = [
@@ -36,9 +39,17 @@ session-analyze = "session_index.analyzer:main"
 session-topic-capture = "session_index.topic_capture:main"
 
 [project.urls]
-Homepage = "https://github.com/lee-fuhr/claude-session-index"
-Repository = "https://github.com/lee-fuhr/claude-session-index"
-Issues = "https://github.com/lee-fuhr/claude-session-index/issues"
+Homepage = "https://github.com/Syrunekai/claude-session-index"
+Repository = "https://github.com/Syrunekai/claude-session-index"
+Issues = "https://github.com/Syrunekai/claude-session-index/issues"
+Upstream = "https://github.com/lee-fuhr/claude-session-index"
+
+# Fork metadata. PEP 621 doesn't define a standard "this is a fork of" field,
+# so we keep the lineage in a tool table. Anyone (humans, scripts, CI) can read
+# it; setuptools and PyPI ignore it.
+[tool.session-index]
+fork-of = "lee-fuhr/claude-session-index"
+forked-from-version = "0.3.1"
 
 [tool.setuptools.packages.find]
 include = ["session_index*"]

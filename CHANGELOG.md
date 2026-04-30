@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.0 — Fork divergence: XDG paths, hardened defaults, admin subcommands
+
+First release of the [Syrunekai fork](https://github.com/Syrunekai/claude-session-index) — divergence point from upstream [`lee-fuhr/claude-session-index@v0.3.1`](https://github.com/lee-fuhr/claude-session-index). Focused on resilience, security defaults, and self-contained setup so the tool is usable inside Claude Code's sandbox without external scaffolding.
+
+If you're upgrading from upstream: your old DB at `~/.session-index/sessions.db` keeps working (legacy notice on first run tells you where the new XDG-compliant location is). Re-indexing at the new location is fast and offline.
+
+- **WAL fallback for sandboxed environments** — `PRAGMA journal_mode=WAL` requires creating `-wal` and `-shm` sidecar files, which the Claude Code sandbox blocks by default. The indexer now tries WAL, falls back to default journaling on `OperationalError`, and emits a one-time-per-invocation warning pointing at the fix. Default mode is correct, just slightly slower for concurrent access — irrelevant for a single-user CLI.
+- **XDG-compliant paths** — DB moved from `~/.session-index/sessions.db` to `$XDG_CACHE_HOME/claude-session-index/sessions.db` (regenerable cache). Config moved from `~/.session-index/config.json` to `$XDG_CONFIG_HOME/claude-session-index/config.toml` (hand-edited, sync-friendly). Topics directory unchanged at `~/.claude/session-topics/` (Claude's namespace).
+- **Permission hardening (`0o700` / `0o600`)** — DB and config directories created owner-only; DB and config files created owner-only. Permissions are *self-healing* — old loose-perm files get tightened on the next CLI invocation. Addresses upstream issue [#1](https://github.com/lee-fuhr/claude-session-index/issues/1) by [@miclivne](https://github.com/miclivne).
+- **`sessions install-skill`** — first-class skill installation that doesn't need npm or npx. Defaults to copy (snapshot, supply-chain-safe); `--link` opts into a symlink that tracks the package. The `npx skills add` workflow still works for users who want skill-marketplace integration.
+- **`sessions configure-permissions`** — adds a `Write($XDG_CACHE_HOME/claude-session-index/**)` rule to `~/.claude/settings.json` so WAL works inside the Claude Code sandbox without manual settings editing. Backs up settings.json before writing; `--dry-run` previews; `--remove` for clean uninstall.
+- **`sessions init-config`** — exposes the previously-unreachable bootstrap that writes a default config file. Supports `--force` to overwrite. The generated TOML is fully commented inline.
+- **TOML config + schema versioning** — config format switched from JSON to TOML. Reading via stdlib `tomllib`; writing from a hardcoded `CONFIG_TEMPLATE` constant in `config.py` (zero runtime deps added). Each config carries a `schema_version`; mismatch produces a one-time advisory warning, defaults still apply silently for missing keys.
+- **`config.example.toml` at repo root** — generated from the same `CONFIG_TEMPLATE` constant. Browse the full config reference on GitHub without cloning. Regenerated via `scripts/sync-config-example.py`; a test enforces drift detection.
+- **Cross-platform skill file** — instead of a symlink that only worked on Linux/macOS, `skills/session-index/SKILL.md` is now a real file kept in sync with `session_index/_skill/SKILL.md` via `scripts/sync-skill.py`. A test in the suite catches forgotten syncs. Restores Windows compatibility.
+- **Test suite** — upstream had no tests. This fork ships with 51 stdlib `unittest` tests covering XDG path resolution, legacy detection, perm helpers, WAL fallback, TOML loading, schema versioning, all three new admin subcommands, and the sync-script drift detection. Run with `python -m unittest discover -s tests`.
+- **Min Python bumped to 3.11** — required for stdlib `tomllib`. 3.10 has been EOL or near-EOL on most distros; the cleaner zero-deps story is worth the cut.
+- **`.env.example` removed** — the file existed in upstream but no code path loaded it, so anyone copying it to `.env` got nothing. Env vars are documented inline in the README's Configuration > Priority order section.
+
 ## v0.3.1 — Stop titling everything "## Curation Data"
 
 - **Smarter title auto-generation** — skips markdown headers, agent system prompts, and system caveats when picking a title from user messages. Tries up to 5 messages before giving up.
