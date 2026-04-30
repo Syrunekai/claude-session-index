@@ -303,4 +303,42 @@ The indexer parses JSONL files once, extracts metadata (timestamps, tools, agent
 
 ---
 
-Built by [Lee Fuhr](https://leefuhr.com)
+Built by [Lee Fuhr](https://leefuhr.com). Forked and extended by Syrunekai.
+
+---
+
+## Contributing
+
+### Editing the skill
+
+`SKILL.md` exists in two places by necessity:
+
+- **Source of truth:** `session_index/_skill/SKILL.md` — ships inside the
+  package wheel so `sessions install-skill` can find it post-install.
+- **Derived copy:** `skills/session-index/SKILL.md` — the conventional path
+  that `npx skills add` reads.
+
+Edit the source. Then regenerate the derived copy:
+
+```bash
+python scripts/sync-skill.py
+```
+
+A test (`tests/test_installer.py::SkillSyncTests`) fails if the two ever drift,
+so you cannot accidentally land an out-of-sync change. Use `--check` mode in
+pre-commit hooks or CI:
+
+```bash
+python scripts/sync-skill.py --check
+```
+
+The two-file split (rather than a symlink) keeps the project usable on Windows,
+where git does not materialize symlinks by default.
+
+### Running tests
+
+```bash
+python -m unittest discover -s tests
+```
+
+Pure stdlib, no test dependencies.

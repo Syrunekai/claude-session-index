@@ -189,5 +189,31 @@ class InitConfigCmdTests(unittest.TestCase):
         self.assertGreater(len(self.cfg_path.read_text()), 5)
 
 
+class SkillSyncTests(unittest.TestCase):
+    """The repo-root SKILL.md must mirror the package source.
+
+    Two files exist for two install paths:
+    - session_index/_skill/SKILL.md ships in the wheel for `install-skill`
+    - skills/session-index/SKILL.md is the conventional path for `npx skills add`
+
+    They must be byte-identical. scripts/sync-skill.py regenerates the second
+    from the first. This test catches a forgotten sync.
+    """
+
+    def test_repo_skill_in_sync_with_package_source(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        source = repo_root / "session_index" / "_skill" / "SKILL.md"
+        derived = repo_root / "skills" / "session-index" / "SKILL.md"
+        self.assertTrue(source.exists(), f"source missing: {source}")
+        self.assertTrue(derived.exists(), f"derived missing: {derived}")
+        self.assertEqual(
+            source.read_text(),
+            derived.read_text(),
+            "skills/session-index/SKILL.md is out of sync with "
+            "session_index/_skill/SKILL.md.\n"
+            "Run: python scripts/sync-skill.py",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
