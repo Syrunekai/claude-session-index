@@ -15,6 +15,7 @@ Path conventions (XDG Base Directory Specification):
 
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 from typing import Optional
@@ -43,6 +44,38 @@ CONFIG_FILE = _xdg_config_home() / _APP_DIR_NAME / "config.json"
 
 _cached_config: Optional[dict] = None
 _legacy_notice_emitted = False
+
+
+def secure_mkdir(path, mode: int = 0o700) -> None:
+    """Create directory with restrictive permissions, healing existing dirs.
+
+    The DB and config dirs hold session content that can include sensitive
+    data (paths, code, anything ever discussed in a Claude session). Default
+    umask on most systems leaves these world-readable, which is wrong on a
+    multi-user box. This always ends with mode 0o700 if at all possible.
+    """
+    path = Path(path)
+    if path.exists():
+        try:
+            current = stat.S_IMODE(path.stat().st_mode)
+            if current != mode:
+                path.chmod(mode)
+        except OSError:
+            pass
+    else:
+        path.mkdir(parents=True, mode=mode, exist_ok=True)
+
+
+def secure_chmod_file(path, mode: int = 0o600) -> None:
+    """Heal file permissions if existing file has wrong mode."""
+    path = Path(path)
+    if path.exists():
+        try:
+            current = stat.S_IMODE(path.stat().st_mode)
+            if current != mode:
+                path.chmod(mode)
+        except OSError:
+            pass
 
 
 def _maybe_emit_legacy_path_notice():
@@ -136,7 +169,7 @@ def get_db_path(override: str = None) -> Path:
         p = Path(override).expanduser()
     else:
         p = Path(get_config()["db_path"]).expanduser()
-    p.parent.mkdir(parents=True, exist_ok=True)
+    secure_mkdir(p.parent, 0o700)
     return p
 
 
@@ -185,8 +218,9 @@ def init_config():
     if CONFIG_FILE.exists():
         return False
 
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    secure_mkdir(CONFIG_FILE.parent, 0o700)
     CONFIG_FILE.write_text(json.dumps(DEFAULTS, indent=2) + "\n")
+    secure_chmod_file(CONFIG_FILE, 0o600)
     return True
 
 

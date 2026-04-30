@@ -24,8 +24,10 @@ from typing import Optional
 
 try:
     from . import config
+    from .config import secure_chmod_file
 except ImportError:
     import config
+    from config import secure_chmod_file
 
 
 _wal_warning_emitted = False
@@ -62,6 +64,7 @@ class SessionIndexer:
         """Open DB connection and ensure schema exists."""
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
+        secure_chmod_file(self.db_path, 0o600)
         try:
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=NORMAL")
