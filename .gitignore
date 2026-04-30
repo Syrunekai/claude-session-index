@@ -37,6 +37,9 @@ env/
 # Session handoff (not for public repo)
 HANDOFF.md
 
+# Local dev notes — not for public repo
+.local/
+
 # OS
 .DS_Store
 Thumbs.db

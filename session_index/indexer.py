@@ -28,6 +28,28 @@ except ImportError:
     import config
 
 
+_wal_warning_emitted = False
+
+
+def _emit_wal_fallback_warning():
+    """Emit a one-time warning when WAL mode falls back to default journaling.
+
+    WAL needs to create -wal/-shm sidecar files next to the DB. Sandboxed or
+    read-only environments block that, so SQLite raises OperationalError. The
+    default journal mode still works fine — slightly worse concurrency, no
+    correctness impact for a single-user CLI.
+    """
+    global _wal_warning_emitted
+    if _wal_warning_emitted:
+        return
+    _wal_warning_emitted = True
+    print(
+        "warning: WAL journal mode unavailable; using default journaling. "
+        "See README troubleshooting for setup details.",
+        file=sys.stderr,
+    )
+
+
 class SessionIndexer:
     def __init__(self, db_path: Path = None, projects_dir: Path = None):
         self.db_path = db_path or config.get_db_path()
@@ -40,8 +62,11 @@ class SessionIndexer:
         """Open DB connection and ensure schema exists."""
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA synchronous=NORMAL")
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.OperationalError:
+            _emit_wal_fallback_warning()
         self._create_schema()
 
     def close(self):
