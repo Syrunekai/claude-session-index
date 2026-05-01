@@ -456,3 +456,26 @@ python -m unittest discover -s tests
 ```
 
 Pure stdlib, no test dependencies.
+
+### Pre-push checks
+
+The repo ships a git pre-push hook that runs the sync checks plus the test
+suite before any push, aborting if anything is red. Wire it up once after
+cloning:
+
+```bash
+python scripts/install-hooks.py
+```
+
+That sets git's `core.hooksPath` to `scripts/git-hooks/` for this clone.
+From then on, `git push` automatically runs `scripts/preflight.py` first
+and aborts on any failure — no network round-trip wasted on a bad push.
+
+You can also run the preflight manually any time:
+
+```bash
+python scripts/preflight.py
+```
+
+The hook is Python, not bash, so it works the same on Linux, macOS, and
+Windows (git-for-windows). No external tooling beyond Python itself.
