@@ -28,6 +28,19 @@ sessions configure-permissions    # allow DB writes inside Claude sandbox
 
 That's it. The first time you ask a question, it auto-indexes all your existing sessions. After that, queries return in milliseconds.
 
+### Updating
+
+To pull the latest commits into your install:
+
+```bash
+uv tool install --reinstall git+https://github.com/Syrunekai/claude-session-index
+sessions install-skill --force
+```
+
+The first command rebuilds the `sessions` binary from the latest source. The second overwrites your installed `~/.claude/skills/session-index/SKILL.md` with the updated copy from the package — important after any change to skill guidance, since the install-time copy is static (unless you originally installed it with `--link`).
+
+If you originally installed the skill via `npx skills add ... --copy`, re-run that command with `--force` instead of `sessions install-skill --force`.
+
 ### Skill install — alternative via npx
 
 If you'd rather use the [skills marketplace](https://github.com/anthropics/claude-skills) and its supply-chain risk checker, you can install the skill via npx instead:
@@ -139,6 +152,15 @@ sessions init-config --force              # overwrite existing
 ```
 
 Plain text defaults to search — `sessions "webhook debugging"` just works, no subcommand needed.
+
+### Search tips
+
+The search uses SQLite FTS5 — fast, but it expects keyword-style queries, not natural language. For direct CLI use:
+
+- **Use keywords, not sentences.** `sessions "webhook signature verification"` works. `sessions "what did I figure out about webhook signatures"` requires every word — including `what`, `did`, `I`, `figure` — to appear in the indexed text, so it usually returns nothing.
+- **Stop words count.** Common filler words (`the`, `of`, `and`, `what`, `did`, `is`) are not filtered by the index — they become required terms. Drop them from your queries.
+- **Quote multi-word phrases** for exact sequences: `sessions '"silent failure"'` matches the literal phrase, not just both words anywhere.
+- **In Claude Code conversation, the skill handles all of this for you.** The tips above only matter when typing `sessions` directly into a terminal — Claude extracts keywords from your natural-language question before invoking the CLI.
 
 ### CLI output
 

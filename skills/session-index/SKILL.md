@@ -81,7 +81,26 @@ This is the most valuable capability. When the user asks a question that spans m
 
 This uses an in-session Haiku subagent — no external API key needed.
 
-### 4. Present results conversationally
+### 4. Fallback — extracting full message content
+
+`sessions` has two structural limits:
+
+1. **FTS only indexes user prompts**, not assistant responses. A search for a phrase that lives in something Claude said returns zero hits even when the response exists.
+2. **`sessions context` truncates each message at ~600 chars.** Long structured assistant outputs (memory dumps, briefs, self-summaries) — the highest-value content for recall — are the most likely to exceed the cap.
+
+When the user wants the *contents* of a past message rather than confirmation it happened, use the resume-extract pattern:
+
+1. Use `sessions` to identify the right session ID.
+2. Spawn a Haiku side-agent (via the Agent tool) and have it run:
+   ```bash
+   claude --resume <session_id> -p "<extraction prompt>"
+   ```
+   `--resume` loads the full transcript into context; `-p` makes it a one-shot. Brief the side-agent with the exact command and what to extract; tell it to wrap output in a fenced block and not summarize.
+3. Haiku is sufficient — the task is mechanical (load context, print verbatim), not reasoning-heavy.
+
+Use this whenever a search came up dry on a query that should have hit, or when the user is asking for the *text* of something they remember rather than confirmation it was said.
+
+### 5. Present results conversationally
 
 Don't dump raw CLI output. Summarize:
 - "You discussed browser control in 3 sessions last week..."
