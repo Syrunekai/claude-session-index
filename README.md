@@ -28,10 +28,6 @@ sessions configure-permissions    # allow DB writes inside Claude sandbox
 
 That's it. The first time you ask a question, it auto-indexes all your existing sessions. After that, queries return in milliseconds.
 
-> **Heads-up — currently Claude Code only.** This fork keeps upstream's
-> Claude-only scope. If you also want OpenClaw or Hermes session indexing,
-> see `.local/future-additions.md` in the repo for plans.
-
 ### Skill install — alternative via npx
 
 If you'd rather use the [skills marketplace](https://github.com/anthropics/claude-skills) and its supply-chain risk checker, you can install the skill via npx instead:
@@ -327,6 +323,13 @@ The SQLite index database is plaintext and contains the full content of your Cla
 - DB and config directories created with mode `0o700` (owner-only)
 - DB and config files created with mode `0o600` (owner-only)
 - Permissions are *self-healing* — if you upgraded from upstream and your old files have looser permissions, they get tightened on the next CLI invocation
+
+> **Windows note:** POSIX permission modes (`0o700` / `0o600`) are POSIX-only.
+> Python's `os.chmod` on Windows only toggles the read-only flag — it does
+> *not* enforce owner-only access, because Windows uses NTFS ACLs instead of
+> POSIX modes. The owner-only defaults above apply on Linux and macOS;
+> Windows users should rely on per-user accounts plus full-disk encryption
+> (BitLocker) to achieve the same protection.
 
 **Things you should consider yourself:**
 
