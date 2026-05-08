@@ -117,8 +117,11 @@ sessions "webhook debugging"
 sessions "webhook" --context              # with conversation excerpts
 
 # Browse a conversation
-sessions context <id> "term"              # exchanges matching a term
-sessions context <id>                     # all exchanges
+sessions context <id> "term"              # exchanges matching a term (first 10, truncated at 1000 chars)
+sessions context <id>                     # first 10 exchanges, truncated at 1000 chars
+sessions context <id> --full              # all exchanges, untruncated (zero-touch read)
+sessions context <id> --full --tail 20    # last 20 exchanges, untruncated
+sessions context <id> --full -n 30        # first 30 exchanges, untruncated
 
 # Analytics
 sessions analytics                        # overall stats
