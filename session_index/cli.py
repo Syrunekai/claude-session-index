@@ -80,7 +80,12 @@ def main():
     sp = subparsers.add_parser('context', help='Conversation context for a session')
     sp.add_argument('session_id', help='Session ID (full or prefix)')
     sp.add_argument('query', nargs='?', default=None, help='Filter to matching exchanges')
-    sp.add_argument('-n', '--limit', type=int, default=10, help='Max exchanges')
+    sp.add_argument('-n', '--limit', type=int, default=None,
+                    help='Max exchanges from the start (default: 10 unless --full)')
+    sp.add_argument('--tail', type=int, metavar='N',
+                    help='Last N exchanges (instead of first); mutually exclusive with -n')
+    sp.add_argument('--full', action='store_true',
+                    help='No per-message truncation, no exchange limit unless -n/--tail given')
 
     # analytics
     sp = subparsers.add_parser('analytics', help='Session analytics')
@@ -239,8 +244,27 @@ def main():
             searcher.close()
 
     elif args.command == 'context':
+        if args.limit is not None and args.tail is not None:
+            parser.error("--tail and -n/--limit are mutually exclusive")
+
+        max_chars = None if args.full else 1000
+
+        if args.tail is not None:
+            limit = args.tail
+            from_end = True
+        elif args.limit is not None:
+            limit = args.limit
+            from_end = False
+        elif args.full:
+            limit = None
+            from_end = False
+        else:
+            limit = 10
+            from_end = False
+
         result = get_context(args.session_id, query=args.query,
-                             limit=args.limit, db_path=db_path)
+                             limit=limit, db_path=db_path,
+                             max_chars=max_chars, from_end=from_end)
         print(format_context(result))
 
     elif args.command == 'analytics':

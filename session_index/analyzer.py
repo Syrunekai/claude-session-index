@@ -98,10 +98,14 @@ def _extract_user_text(content) -> str:
 
 
 def extract_exchanges(session_path: str | Path, query: str = None,
-                      limit: int = 10, max_chars: int = 1000) -> list[dict]:
+                      limit: int = 10, max_chars: int = 1000,
+                      from_end: bool = False) -> list[dict]:
     """Extract user+assistant exchange pairs from JSONL.
 
     If query provided, only return exchanges where user message matches.
+    If max_chars is None, no per-message truncation is applied.
+    If limit is None, all matching exchanges are returned.
+    If from_end is True, returns the last `limit` exchanges instead of the first.
     Returns list of {user: str, assistant: str, timestamp: str} dicts.
     """
     path = Path(session_path)
@@ -198,21 +202,30 @@ def extract_exchanges(session_path: str | Path, query: str = None,
 
         exchanges = matched or []
 
-    # Truncate long messages
-    for ex in exchanges:
-        if len(ex["user"]) > max_chars:
-            ex["user"] = ex["user"][:max_chars] + "..."
-        if len(ex["assistant"]) > max_chars:
-            ex["assistant"] = ex["assistant"][:max_chars] + "..."
+    # Truncate long messages (skip if max_chars is None)
+    if max_chars is not None:
+        for ex in exchanges:
+            if len(ex["user"]) > max_chars:
+                ex["user"] = ex["user"][:max_chars] + "..."
+            if len(ex["assistant"]) > max_chars:
+                ex["assistant"] = ex["assistant"][:max_chars] + "..."
 
+    if limit is None:
+        return exchanges
+    if from_end:
+        return exchanges[-limit:] if limit > 0 else exchanges
     return exchanges[:limit]
 
 
 def get_context(session_id: str, query: str = None, limit: int = 10,
-                db_path: Path = None) -> dict:
+                db_path: Path = None, max_chars: int = 1000,
+                from_end: bool = False) -> dict:
     """Get conversation context for a session.
 
     Returns dict with session info + matching exchanges.
+    If max_chars is None, no per-message truncation is applied.
+    If limit is None, all matching exchanges are returned.
+    If from_end is True, returns the last `limit` exchanges instead of the first.
     """
     if db_path is None:
         db_path = config.get_db_path()
@@ -243,7 +256,8 @@ def get_context(session_id: str, query: str = None, limit: int = 10,
 
     session_info = dict(row)
     exchanges = extract_exchanges(
-        session_info["file_path"], query=query, limit=limit
+        session_info["file_path"], query=query, limit=limit,
+        max_chars=max_chars, from_end=from_end,
     )
 
     return {

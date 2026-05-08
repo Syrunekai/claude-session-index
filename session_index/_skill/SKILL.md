@@ -83,22 +83,43 @@ This uses an in-session Haiku subagent — no external API key needed.
 
 ### 4. Fallback — extracting full message content
 
-`sessions` has two structural limits:
+`sessions context <id>` defaults are tuned for quick scanning: only the **first 10 exchanges** are shown, each message **truncated at ~1000 chars**. When the user asks for the *contents* of a past message — long structured assistant outputs (memory dumps, briefs, self-summaries, full code), or content that lives past exchange #10 — those defaults will hide what they actually want.
 
-1. **FTS only indexes user prompts**, not assistant responses. A search for a phrase that lives in something Claude said returns zero hits even when the response exists.
-2. **`sessions context` truncates each message at ~600 chars.** Long structured assistant outputs (memory dumps, briefs, self-summaries) — the highest-value content for recall — are the most likely to exceed the cap.
+**Reach for `--full` first.** It removes both limits at once.
 
-When the user wants the *contents* of a past message rather than confirmation it happened, use the resume-extract pattern:
+#### Standard fallback pattern
 
-1. Use `sessions` to identify the right session ID.
-2. Spawn a Haiku side-agent (via the Agent tool) and have it run:
-   ```bash
-   claude --resume <session_id> -p "<extraction prompt>"
-   ```
-   `--resume` loads the full transcript into context; `-p` makes it a one-shot. Brief the side-agent with the exact command and what to extract; tell it to wrap output in a fenced block and not summarize.
-3. Haiku is sufficient — the task is mechanical (load context, print verbatim), not reasoning-heavy.
+```bash
+sessions context <session_id> --full
+```
 
-Use this whenever a search came up dry on a query that should have hit, or when the user is asking for the *text* of something they remember rather than confirmation it was said.
+Dumps every exchange in the session, untruncated, in the same bordered display as `sessions context` — assistant text complete, tool calls summarized as one-liners (`[Read: path]`, `[Bash: cmd]`, `[Task: "desc" → agent]`).
+
+#### Filter by topic when the session is large
+
+```bash
+sessions context <session_id> --full "topic keywords"
+```
+
+Returns only exchanges where the user message or assistant message matches the filter — still untruncated. Use this when the user is asking about a specific subject within a long session.
+
+#### Look only at the end of a long session
+
+```bash
+sessions context <session_id> --full --tail 20
+```
+
+Last 20 exchanges, untruncated. Useful when the user wants "what did we finish with?" rather than the whole conversation.
+
+#### Look at a specific count from the start
+
+```bash
+sessions context <session_id> --full -n 30
+```
+
+First 30 exchanges, untruncated. `-n` and `--tail` are mutually exclusive.
+
+**Zero-touch.** All `sessions context` invocations read JSONL only — they never modify the source session, never update timestamps, never write back. Use freely.
 
 ### 5. Present results conversationally
 
