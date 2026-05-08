@@ -43,6 +43,7 @@ DEFAULTS = {
     "topics_dir": str(Path.home() / ".claude" / "session-topics"),
     "clients": [],
     "project_names": {},
+    "auto_reindex_time": 60,
 }
 
 CONFIG_FILE = _xdg_config_home() / _APP_DIR_NAME / "config.toml"
@@ -51,7 +52,7 @@ CONFIG_FILE = _xdg_config_home() / _APP_DIR_NAME / "config.toml"
 # config files keep working — defaults fill in any missing keys —
 # but a one-time warning nudges the user to refresh from the
 # latest config.example.toml.
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 CONFIG_TEMPLATE = """\
 # Configuration for claude-session-index
@@ -63,7 +64,7 @@ CONFIG_TEMPLATE = """\
 # config after upgrading the tool, defaults are used silently for any
 # newly added keys and a one-time warning will point you at the latest
 # config.example.toml.
-schema_version = 1
+schema_version = 2
 
 # Where Claude Code session JSONL files live. Override only if Claude
 # stores sessions somewhere unusual.
@@ -75,6 +76,13 @@ schema_version = 1
 # Hook-captured topic timeline directory. This is Claude Code's namespace,
 # not ours — change only if you have moved Claude's data.
 # topics_dir = "~/.claude/session-topics"
+
+# How long (in minutes) the index can go un-refreshed before the next
+# `sessions` command auto-runs an incremental re-index. Cheap for active
+# sessions (only the changed ones get re-parsed) but adds a sweep cost
+# proportional to your total session count. Set to 0 to disable and
+# manage indexing yourself with `sessions index`. Default: 60.
+# auto_reindex_time = 60
 
 # Optional: list of client names. Sessions whose prompts mention any of
 # these names get auto-tagged with the matching client. Used by
@@ -318,16 +326,24 @@ def init_config():
 
 
 def ensure_indexed(db_path: Path = None) -> bool:
-    """Auto-index on first use if database is empty or missing.
+    """Auto-index on first use, and refresh stale indexes.
 
-    Returns True if backfill was triggered.
+    On an empty/missing DB, runs a full backfill. On a populated DB whose
+    `last_indexed_at` is older than `auto_reindex_time` minutes ago, runs
+    an incremental refresh. Setting `auto_reindex_time = 0` disables the
+    staleness check (manual indexing only). Returns True if any indexing
+    was triggered.
     """
     import sqlite3
+    import time
 
     if db_path is None:
         db_path = get_db_path()
 
     needs_backfill = False
+    needs_refresh = False
+    last_indexed_at: Optional[int] = None
+
     if not db_path.exists():
         needs_backfill = True
     else:
@@ -338,26 +354,49 @@ def ensure_indexed(db_path: Path = None) -> bool:
             ).fetchone()
             if has_table:
                 count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-                needs_backfill = (count == 0)
+                if count == 0:
+                    needs_backfill = True
+                else:
+                    try:
+                        row = conn.execute(
+                            "SELECT value FROM metadata WHERE key='last_indexed_at'"
+                        ).fetchone()
+                        last_indexed_at = int(row[0]) if row else None
+                    except sqlite3.OperationalError:
+                        last_indexed_at = None  # metadata table missing — pre-v2 DB
             else:
                 needs_backfill = True
             conn.close()
         except Exception:
             needs_backfill = True
 
-    if needs_backfill:
-        print("\n  First run — indexing all your sessions...")
-        print("  (This only happens once.)\n")
+    if not needs_backfill:
+        threshold_minutes = int(get_config().get("auto_reindex_time", 0) or 0)
+        if threshold_minutes > 0:
+            now = int(time.time())
+            if last_indexed_at is None or (now - last_indexed_at) >= threshold_minutes * 60:
+                needs_refresh = True
+
+    if not (needs_backfill or needs_refresh):
+        return False
+
+    try:
+        from session_index.indexer import SessionIndexer
+    except ImportError:
         try:
-            from session_index.indexer import SessionIndexer
+            from .indexer import SessionIndexer
         except ImportError:
-            try:
-                from .indexer import SessionIndexer
-            except ImportError:
-                from indexer import SessionIndexer
-        indexer = SessionIndexer(db_path=db_path)
-        indexer.connect()
-        indexer.backfill_all()
+            from indexer import SessionIndexer
+
+    indexer = SessionIndexer(db_path=db_path)
+    indexer.connect()
+    try:
+        if needs_backfill:
+            print("\n  First run — indexing all your sessions...")
+            print("  (This only happens once.)\n")
+            indexer.backfill_all()
+        else:
+            indexer.index_incremental()
+    finally:
         indexer.close()
-        return True
-    return False
+    return True

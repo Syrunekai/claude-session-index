@@ -7,7 +7,7 @@
 # config after upgrading the tool, defaults are used silently for any
 # newly added keys and a one-time warning will point you at the latest
 # config.example.toml.
-schema_version = 1
+schema_version = 2
 
 # Where Claude Code session JSONL files live. Override only if Claude
 # stores sessions somewhere unusual.
@@ -19,6 +19,13 @@ schema_version = 1
 # Hook-captured topic timeline directory. This is Claude Code's namespace,
 # not ours — change only if you have moved Claude's data.
 # topics_dir = "~/.claude/session-topics"
+
+# How long (in minutes) the index can go un-refreshed before the next
+# `sessions` command auto-runs an incremental re-index. Cheap for active
+# sessions (only the changed ones get re-parsed) but adds a sweep cost
+# proportional to your total session count. Set to 0 to disable and
+# manage indexing yourself with `sessions index`. Default: 60.
+# auto_reindex_time = 60
 
 # Optional: list of client names. Sessions whose prompts mention any of
 # these names get auto-tagged with the matching client. Used by

@@ -128,6 +128,11 @@ class SessionIndexer:
                 FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
             CREATE INDEX IF NOT EXISTS idx_sessions_client ON sessions(client);
             CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time);
@@ -154,6 +159,31 @@ class SessionIndexer:
         """Quick hash based on size + mtime (not content — too slow for backfill)."""
         stat = path.stat()
         return hashlib.md5(f"{stat.st_size}:{stat.st_mtime}".encode()).hexdigest()
+
+    def _record_indexed_at(self) -> None:
+        """Write the current epoch timestamp into metadata as the freshness marker."""
+        import time
+        self.conn.execute(
+            "INSERT INTO metadata(key, value) VALUES ('last_indexed_at', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(int(time.time())),),
+        )
+        self.conn.commit()
+
+    def get_last_indexed_at(self) -> Optional[int]:
+        """Return the epoch seconds of the last successful index run, or None."""
+        try:
+            row = self.conn.execute(
+                "SELECT value FROM metadata WHERE key='last_indexed_at'"
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        if not row or row['value'] is None:
+            return None
+        try:
+            return int(row['value'])
+        except (TypeError, ValueError):
+            return None
 
     def _parse_session(self, session_path: Path) -> Optional[dict]:
         """Parse a session JSONL file into indexable data."""
@@ -498,6 +528,7 @@ class SessionIndexer:
             else:
                 stats['errors'] += 1
 
+        self._record_indexed_at()
         print(f"\nBackfill complete: {stats['indexed']} indexed, {stats['skipped']} unchanged, {stats['errors']} errors")
         return stats
 
@@ -531,6 +562,7 @@ class SessionIndexer:
                 else:
                     stats['errors'] += 1
 
+        self._record_indexed_at()
         return stats
 
     def get_stats(self) -> dict:

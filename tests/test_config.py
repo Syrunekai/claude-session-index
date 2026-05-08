@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Optional
 from unittest import mock
 
 
@@ -331,6 +332,131 @@ class ConfigExampleSyncTests(unittest.TestCase):
             "session_index/config.py:CONFIG_TEMPLATE.\n"
             "Run: python scripts/sync-config-example.py",
         )
+
+
+class AutoReindexConfigTests(unittest.TestCase):
+    """auto_reindex_time default + config-file override."""
+
+    def test_default_is_60_minutes(self):
+        config = _reload_config()
+        self.assertEqual(config.DEFAULTS["auto_reindex_time"], 60)
+
+    def test_config_file_override(self):
+        from session_index import config
+        cfg_text = (
+            f"schema_version = {config.CURRENT_SCHEMA_VERSION}\n"
+            "auto_reindex_time = 15\n"
+        )
+        with tempfile.NamedTemporaryFile(suffix=".toml", delete=False, mode="w") as f:
+            f.write(cfg_text)
+            cfg_path = Path(f.name)
+        try:
+            config._cached_config = None
+            config._schema_warning_emitted = True
+            with mock.patch.object(config, "CONFIG_FILE", cfg_path):
+                resolved = config.get_config()
+            self.assertEqual(resolved["auto_reindex_time"], 15)
+        finally:
+            cfg_path.unlink()
+            config._cached_config = None
+
+
+class EnsureIndexedStalenessTests(unittest.TestCase):
+    """ensure_indexed runs an incremental refresh when the index is stale."""
+
+    def setUp(self):
+        from session_index import config
+        self.config = config
+        self.tmp = Path(tempfile.mkdtemp(prefix="csi-stale-"))
+        self.projects = self.tmp / "projects"
+        self.projects.mkdir()
+        self.db = self.tmp / "test.db"
+        # Override cached config so tests don't touch the user's real projects/db
+        self._original_cache = self.config._cached_config
+        self.config._cached_config = {
+            "projects_dir": str(self.projects),
+            "db_path": str(self.db),
+            "topics_dir": str(self.tmp / "topics"),
+            "clients": [],
+            "project_names": {},
+            "auto_reindex_time": 60,
+        }
+
+    def tearDown(self):
+        self.config._cached_config = self._original_cache
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _seed_populated_db(self, last_indexed_offset_seconds: int = 0) -> int:
+        """Create a populated DB whose last_indexed_at is offset from now."""
+        from session_index import indexer
+        import time
+        idx = indexer.SessionIndexer(db_path=self.db, projects_dir=self.projects)
+        idx.connect()
+        try:
+            idx.conn.execute(
+                "INSERT INTO sessions(session_id, file_path, indexed_at) "
+                "VALUES('fake-session', '/tmp/fake.jsonl', '2026-01-01')"
+            )
+            ts = int(time.time()) + last_indexed_offset_seconds
+            idx.conn.execute(
+                "INSERT INTO metadata(key, value) VALUES('last_indexed_at', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(ts),),
+            )
+            idx.conn.commit()
+        finally:
+            idx.close()
+        return ts
+
+    def _read_last_indexed_at(self) -> Optional[int]:
+        import sqlite3
+        conn = sqlite3.connect(str(self.db))
+        try:
+            row = conn.execute(
+                "SELECT value FROM metadata WHERE key='last_indexed_at'"
+            ).fetchone()
+            return int(row[0]) if row else None
+        finally:
+            conn.close()
+
+    def test_fresh_index_returns_false(self):
+        """1 minute ago vs 60-minute threshold = fresh, no work done."""
+        seeded = self._seed_populated_db(last_indexed_offset_seconds=-60)
+        triggered = self.config.ensure_indexed(self.db)
+        self.assertFalse(triggered)
+        # Timestamp should not have moved
+        self.assertEqual(self._read_last_indexed_at(), seeded)
+
+    def test_stale_index_triggers_refresh(self):
+        """2 hours ago vs 60-minute threshold = stale, incremental run fires."""
+        seeded = self._seed_populated_db(last_indexed_offset_seconds=-7200)
+        triggered = self.config.ensure_indexed(self.db)
+        self.assertTrue(triggered)
+        # Timestamp should have advanced past the seeded value
+        new_ts = self._read_last_indexed_at()
+        self.assertIsNotNone(new_ts)
+        self.assertGreater(new_ts, seeded)
+
+    def test_auto_reindex_time_zero_disables_check(self):
+        """Setting threshold to 0 disables the staleness trigger entirely."""
+        self.config._cached_config["auto_reindex_time"] = 0
+        seeded = self._seed_populated_db(last_indexed_offset_seconds=-86400)
+        triggered = self.config.ensure_indexed(self.db)
+        self.assertFalse(triggered)
+        self.assertEqual(self._read_last_indexed_at(), seeded)
+
+    def test_missing_metadata_row_treated_as_stale(self):
+        """Pre-v2 DBs have no last_indexed_at — refresh on first call."""
+        self._seed_populated_db(last_indexed_offset_seconds=0)
+        import sqlite3
+        conn = sqlite3.connect(str(self.db))
+        conn.execute("DELETE FROM metadata WHERE key='last_indexed_at'")
+        conn.commit()
+        conn.close()
+        triggered = self.config.ensure_indexed(self.db)
+        self.assertTrue(triggered)
+        # And the refresh should have written a fresh timestamp
+        self.assertIsNotNone(self._read_last_indexed_at())
 
 
 if __name__ == "__main__":

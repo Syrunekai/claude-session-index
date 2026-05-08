@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.1 — Auto-reindex on staleness
+
+The index now refreshes itself in the background when it gets stale, so search results stop drifting behind the conversation you're currently in. No new flags to remember; the next `sessions` command after the threshold quietly does the right thing.
+
+- **Auto-reindex on staleness** — `ensure_indexed()` now also triggers an *incremental* refresh (not a full backfill) when the database hasn't been updated in `auto_reindex_time` minutes. The cheap-path sweep is hash-skip only, so untouched sessions cost ~ms each — only currently-active sessions actually re-parse.
+- **`auto_reindex_time` config key** — defaults to 60 minutes. Set to `0` in your config to disable auto-reindex entirely (back to manual `sessions index` only). Tune up if you have thousands of sessions on slower hardware and the sweep cost is noticeable; tune down if you ask "what did I just try?" and want fresher results.
+- **`metadata` table in the SQLite schema** — stores `last_indexed_at` as the freshness marker. Cross-platform robust where filesystem mtime isn't (WAL-mode SQLite doesn't reliably bump the main DB file's mtime on every commit, so an in-DB row is the right signal). Pre-v0.4.1 databases without this table or row are treated as stale and refreshed on first contact, populating the metadata going forward.
+- **Schema version bumped to 2** — old `schema_version = 1` configs keep working unchanged; defaults silently fill in `auto_reindex_time = 60` and the existing one-time advisory warning points at `config.example.toml`.
+- **11 new tests** — `MetadataTableTests` (table created, timestamp written by both backfill and incremental) and `EnsureIndexedStalenessTests` (fresh skip, stale trigger, `auto_reindex_time = 0` disables, missing-row treated-as-stale) plus `AutoReindexConfigTests` for the new key resolution. Also added `VersionConsistencyTests` — a drift check that fails if `pyproject.toml`'s `project.version` and `session_index.__version__` disagree, since that drift bit us in the v0.4.0 cycle (`__init__.py` stuck at 0.3.0 while pyproject had moved on). Suite total: 80.
+
 ## v0.4.0 — Fork divergence: XDG paths, hardened defaults, admin subcommands
 
 First release of the [Syrunekai fork](https://github.com/Syrunekai/claude-session-index) — divergence point from upstream [`lee-fuhr/claude-session-index@v0.3.1`](https://github.com/lee-fuhr/claude-session-index). Focused on resilience, security defaults, and self-contained setup so the tool is usable inside Claude Code's sandbox without external scaffolding.

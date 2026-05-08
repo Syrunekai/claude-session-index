@@ -10,6 +10,8 @@ Ask "what did I try last time I debugged webhooks?" and get an actual answer.
 
 ## Quick start
 
+### Install
+
 This project installs via [**uv**](https://docs.astral.sh/uv/) — Astral's Rust-based Python package manager. If you don't have it yet:
 
 ```bash
@@ -52,6 +54,20 @@ npx skills add Syrunekai/claude-session-index --copy
 The `--copy` flag is recommended — it creates a static local file rather than symlinking back to the upstream repo, which closes a small supply-chain attack vector.
 
 Either method (`sessions install-skill` or `npx skills add`) results in the same SKILL.md landing in `~/.claude/skills/session-index/`.
+
+### Configuration
+
+Everything works out of the box; the config file is optional. Bootstrap one when you want to tune behavior:
+
+```bash
+sessions init-config        # writes a documented default at $XDG_CONFIG_HOME/claude-session-index/config.toml
+```
+
+The most useful key to know about:
+
+- **`auto_reindex_time`** *(default: `60`, in minutes)* — how stale the index is allowed to get before the next `sessions` command silently triggers an incremental re-index. Lower it (e.g. `15`) if you frequently ask "what did I try in the last hour?" and want fresher recall. Raise it if you're on slower hardware with thousands of sessions and the sweep cost is noticeable. Set to `0` to disable auto-reindex entirely and manage indexing yourself with `sessions index`.
+
+The full configuration reference (paths, client tagging, project-name aliases) is documented further down in [Configuration](#configuration).
 
 ---
 
@@ -320,6 +336,7 @@ The config keeps working — the warning is informational. Refresh by copying an
 | `projects_dir` | Where Claude Code session JSONL files live |
 | `db_path` | SQLite index database location |
 | `topics_dir` | Hook-captured topic timeline directory |
+| `auto_reindex_time` | Minutes before the next `sessions` command auto-runs an incremental re-index. Default `60`. Set to `0` to disable. |
 | `clients` | Optional. List of client names; sessions whose prompts mention any get auto-tagged |
 | `project_names` | Optional. Map raw project directory slugs to friendly display names |
 
