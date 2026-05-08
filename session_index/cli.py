@@ -139,7 +139,10 @@ def main():
     )
     sp.add_argument('--link', action='store_true',
                     help='Symlink instead of copy (live updates from package)')
-    sp.add_argument('--force', action='store_true', help='Overwrite existing')
+    sp.add_argument('--force', dest='force', action='store_true',
+                    help='Overwrite existing')
+    sp.add_argument('--update', dest='force', action='store_true',
+                    help='Overwrite existing (alias for --force)')
     sp.add_argument('--target', help='Override default target directory')
 
     # configure-permissions

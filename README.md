@@ -36,12 +36,12 @@ To pull the latest commits into your install:
 
 ```bash
 uv tool install --reinstall git+https://github.com/Syrunekai/claude-session-index
-sessions install-skill --force
+sessions install-skill --update
 ```
 
-The first command rebuilds the `sessions` binary from the latest source. The second overwrites your installed `~/.claude/skills/session-index/SKILL.md` with the updated copy from the package — important after any change to skill guidance, since the install-time copy is static (unless you originally installed it with `--link`).
+The first command rebuilds the `sessions` binary from the latest source. The second overwrites your installed `~/.claude/skills/session-index/SKILL.md` with the updated copy from the package — important after any change to skill guidance, since the install-time copy is static (unless you originally installed it with `--link`). `--update` is an alias for `--force` if you prefer that name.
 
-If you originally installed the skill via `npx skills add ... --copy`, re-run that command with `--force` instead of `sessions install-skill --force`.
+If you originally installed the skill via `npx skills add ... --copy`, re-run that command with `--force` instead of `sessions install-skill --update`.
 
 ### Skill install — alternative via npx
 
