@@ -47,8 +47,13 @@ sessions "relevant keywords" --context    # includes conversation excerpts
 **Context** — read the actual conversation from a session:
 ```bash
 sessions context <session_id> "search term"   # exchanges matching a term
-sessions context <session_id>                 # all exchanges
+sessions context <session_id>                 # first 10 exchanges, truncated at 1000 chars (see --full below)
+sessions context <session_id> --full          # all exchanges, untruncated (zero-touch)
+sessions context <session_id> --full --tail 20  # last 20 exchanges, untruncated
+sessions context <session_id> --full -n 30    # first 30 exchanges, untruncated
 ```
+
+> **`--full` is the answer to "the user wants the actual content of a message."** Section 4 below explains the full pattern; reach for it whenever a quick `sessions context` came up empty or short.
 
 **Analytics** — effort, time, tool usage:
 ```bash
@@ -72,14 +77,14 @@ This is the most valuable capability. When the user asks a question that spans m
 
 1. Search: `sessions "topic" -n 10`
 2. For the top 3-5 results, extract context: `sessions context <id> "topic" -n 3`
-3. Spawn a Task with `model="haiku"` to synthesize:
+3. Spawn a Task with `model="haiku"` — Anthropic's cheapest tier; the alias resolves to the current Claude Haiku, which is plenty for this mechanical aggregation. Ask the subagent to synthesize:
    - What approaches were tried?
    - What worked / what failed?
    - Recurring patterns?
    - Current state?
 4. Present the synthesis conversationally with `claude --resume <id>` links for each source session
 
-This uses an in-session Haiku subagent — no external API key needed.
+The Task subagent runs against your parent session's quota — no external Anthropic API key needed. (The Task tool's `model` parameter only accepts the alias enum `sonnet`/`opus`/`haiku`; it cannot pin to a specific model ID like `claude-3-5-haiku-20241022`. If a future caller needs guaranteed 3.5, define a custom subagent with `model: claude-3-5-haiku-20241022` in its frontmatter and reference it by `subagent_type` instead.)
 
 ### 4. Fallback — extracting full message content
 
