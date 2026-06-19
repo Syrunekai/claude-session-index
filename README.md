@@ -45,7 +45,7 @@ If you originally installed the skill via `npx skills add ... --copy`, re-run th
 
 ### Skill install — alternative via npx
 
-If you'd rather use the [skills marketplace](https://github.com/anthropics/claude-skills) and its supply-chain risk checker, you can install the skill via npx instead:
+If you'd rather use the [skills marketplace](https://www.skills.sh/syrunekai/claude-session-index) and its supply-chain risk checker, you can install the skill via npx instead:
 
 ```bash
 npx skills add Syrunekai/claude-session-index --copy
